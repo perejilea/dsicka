@@ -50,20 +50,61 @@ jobs:
 
       - name: Limpiar backups antiguos (Mantener últimos 7 días)
         run: |
+          set -e  # Salir inmediatamente si algún comando falla
+          
           FECHA_LIMITE=$(date -d "7 days ago" +%s)
-          echo "🗑️  Eliminando backups anteriores a: $(date -d @$FECHA_LIMITE)"
+          echo "🗑️ Eliminando backups anteriores a: $(date -d @$FECHA_LIMITE)"
+          
+          # Login a MEGA
           mega-login "${{ secrets.MEGA_EMAIL }}" "${{ secrets.MEGA_PASSWORD }}"
-          mega-ls /Root/MSX-Backup/ | while read -r LINE; do
-            if [[ $LINE == MSX-Backup_* ]]; then
-              FECHA_ARCHIVO=$(echo "$LINE" | sed 's/MSX-Backup_\([0-9-]*\)_\([0-9-]*\)\.tar\.gz/\1 \2/' | tr '_' ':')
-              TIMESTAMP_ARCHIVO=$(date -d "$FECHA_ARCHIVO" +%s 2>/dev/null)
-              if [[ -n "$TIMESTAMP_ARCHIVO" && $TIMESTAMP_ARCHIVO -lt $FECHA_LIMITE ]]; then
-                echo "Eliminando archivo antiguo: $LINE"
-                mega-rm "/Root/MSX-Backup/$LINE"
+          
+          # Obtener lista de archivos y procesarlos
+          mega-ls /Root/MSX-Backup/ > /tmp/mega_files.txt || {
+            echo "Error al listar archivos en MEGA"
+            mega-logout
+            exit 1
+          }
+          
+          # Procesar archivo por archivo
+          while IFS= read -r LINE; do
+            # Verificar si la línea contiene un archivo de backup
+            if [[ "$LINE" =~ MSX-Backup_([0-9]{4}-[0-9]{2}-[0-9]{2})_([0-9]{2}-[0-9]{2}-[0-9]{2})\.tar\.gz ]]; then
+              FECHA_PARTE="${BASH_REMATCH[1]}"
+              HORA_PARTE="${BASH_REMATCH[2]}"
+              
+              # Convertir formato de hora de HH-MM-SS a HH:MM:SS
+              HORA_FORMATEADA="${HORA_PARTE//-/:}"
+              FECHA_COMPLETA="${FECHA_PARTE} ${HORA_FORMATEADA}"
+              
+              echo "Procesando archivo: $LINE"
+              echo "Fecha extraída: $FECHA_COMPLETA"
+              
+              # Convertir fecha a timestamp
+              TIMESTAMP_ARCHIVO=$(date -d "$FECHA_COMPLETA" +%s 2>/dev/null) || {
+                echo "⚠️ No se pudo parsear la fecha para: $LINE"
+                continue
+              }
+              
+              # Comparar con fecha límite
+              if [[ $TIMESTAMP_ARCHIVO -lt $FECHA_LIMITE ]]; then
+                echo "🗑️ Eliminando archivo antiguo: $LINE"
+                mega-rm "/Root/MSX-Backup/$LINE" || {
+                  echo "⚠️ Error al eliminar: $LINE"
+                  continue
+                }
+                echo "✅ Eliminado: $LINE"
+              else
+                echo "⏰ Manteniendo archivo reciente: $LINE"
               fi
+            else
+              echo "ℹ️ Ignorando línea: $LINE"
             fi
-          done
+          done < /tmp/mega_files.txt
+          
+          # Cleanup
+          rm -f /tmp/mega_files.txt
           mega-logout
+          echo "🧹 Limpieza completada"
 
       - name: Limpiar archivo local temporal
         run: rm -f "$BACKUP_FILENAME"
