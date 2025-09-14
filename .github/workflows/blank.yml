@@ -25,28 +25,15 @@ jobs:
           echo "BACKUP_FILENAME=$BACKUP_FILENAME" >> $GITHUB_ENV
           tar -czf "$BACKUP_FILENAME" backup/ || [[ $? -eq 0 || $? -eq 1 || $? -eq 2 ]]
 
-      - name: Instalar MEGAcmd (Con dependencias)
+      - name: Instalar MEGAcmd (Método definitivo)
         run: |
-          # Actualiza la lista de paquetes
           sudo apt-get update
-          
-          # Instalar la dependencia faltante LIBFUSE2
-          sudo apt-get install -y libfuse2
-          
-          # Descarga el paquete de megacmd
+          # Instalar todas las dependencias conocidas de MEGAcmd
+          sudo apt-get install -y libfuse2 libc6 libstdc++6 libgcc1 zlib1g
           curl -s https://mega.nz/linux/repo/xUbuntu_20.04/amd64/megacmd-xUbuntu_20.04_amd64.deb -o /tmp/megacmd.deb
-          
-          # Instala el paquete de megacmd
-          sudo dpkg -i /tmp/megacmd.deb
-          
-          # Corrección de cualquier otra dependencia faltante
-          sudo apt-get install -f -y
-          
-          # Limpiar archivo temporal
+          sudo apt-get install -y ./megacmd.deb
           rm -f /tmp/megacmd.deb
-          
-          # Verificar instalación
-          mega-version && echo "✅ MEGAcmd instalado correctamente"
+          mega-version
 
       - name: Subir backup a MEGA
         run: |
