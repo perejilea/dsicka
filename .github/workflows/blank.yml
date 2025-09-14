@@ -5,7 +5,6 @@ on:
     paths:
       - 'backup/**'
   schedule:
-    # Ejecuta a las 00:00, 06:00, 12:00 y 18:00 UTC (Cada 6 horas)
     - cron: '0 0,6,12,18 * * *'
   workflow_dispatch:
 
@@ -21,77 +20,59 @@ jobs:
 
       - name: Crear archivo comprimido con timestamp
         run: |
-          # Crear un nombre de archivo con fecha y hora
           TIMESTAMP=$(date +"%Y-%m-%d_%H-%M-%S")
           BACKUP_FILENAME="MSX-Backup_$TIMESTAMP.tar.gz"
           echo "BACKUP_FILENAME=$BACKUP_FILENAME" >> $GITHUB_ENV
-
-          # Empaquetar y comprimir la carpeta 'backup'
-          # La opción '--warning=no-file-changed' hace que el comando exit code 0 aunque no haya cambios.
           tar -czf "$BACKUP_FILENAME" backup/ || [[ $? -eq 0 || $? -eq 1 || $? -eq 2 ]]
 
-      - name: Instalar MEGAcmd (Método Oficial)
+      - name: Instalar MEGAcmd (Tu método probado)
         run: |
-          # 1. Instalar herramientas necesarias
+          # Actualiza la lista de paquetes
           sudo apt-get update
-          sudo apt-get install -y curl gpg
           
-          # 2. Agregar la clave GPG del repositorio de MEGA
-          curl -fsSL https://mega.nz/linux/MEGAsync/xUbuntu_22.04/Release.key | sudo gpg --dearmor -o /usr/share/keyrings/mega-archive-keyring.gpg
+          # Instalar curl si no está presente (por si acaso)
+          sudo apt-get install -y curl
           
-          # 3. Agregar el repositorio de MEGA a la lista de fuentes de APT
-          echo "deb [signed-by=/usr/share/keyrings/mega-archive-keyring.gpg] https://mega.nz/linux/MEGAsync/xUbuntu_22.04/ ./" | sudo tee /etc/apt/sources.list.d/mega.list
+          # Descarga el paquete de megacmd desde el repositorio correcto
+          curl -s https://mega.nz/linux/repo/xUbuntu_20.04/amd64/megacmd-xUbuntu_20.04_amd64.deb -o /tmp/megacmd.deb
           
-          # 4. Actualizar la lista de paquetes e instalar MEGAcmd
-          sudo apt-get update
-          sudo apt-get install -y megacmd
+          # Instala el paquete de megacmd
+          sudo dpkg -i /tmp/megacmd.deb
           
-          # 5. Verificar que la instalación fue exitosa
-          mega-version || echo "MEGAcmd no se instaló correctamente"
+          # Corrección de dependencias faltantes
+          sudo apt-get install -f -y
+          
+          # Limpiar archivo temporal
+          rm -f /tmp/megacmd.deb
+          
+          # Verificar instalación
+          mega-version || echo "MEGAcmd instalado pero no se pudo verificar la versión"
 
       - name: Subir backup a MEGA
         run: |
-          # Iniciar sesión
           mega-login "${{ secrets.MEGA_EMAIL }}" "${{ secrets.MEGA_PASSWORD }}"
-
-          # Crear la carpeta de destino en MEGA si no existe (esto no falla si ya existe)
           mega-mkdir -p "/Root/MSX-Backup"
-
-          # Subir el archivo comprimido a la carpeta
           mega-put "$BACKUP_FILENAME" "/Root/MSX-Backup/"
           echo "✅ Backup subido exitosamente: $BACKUP_FILENAME"
-
-          # Cerrar sesión
           mega-logout
         env:
           BACKUP_FILENAME: ${{ env.BACKUP_FILENAME }}
 
       - name: Limpiar backups antiguos (Mantener últimos 7 días)
         run: |
-          # Calculamos la fecha límite (7 días atrás en formato timestamp de Unix)
           FECHA_LIMITE=$(date -d "7 days ago" +%s)
           echo "🗑️  Eliminando backups anteriores a: $(date -d @$FECHA_LIMITE)"
-
-          # Iniciar sesión de nuevo
           mega-login "${{ secrets.MEGA_EMAIL }}" "${{ secrets.MEGA_PASSWORD }}"
-
-          # Listar todos los archivos en la carpeta MSX-Backup
           mega-ls /Root/MSX-Backup/ | while read -r LINE; do
-            # Filtrar solo los archivos que coincidan con nuestro patrón de nombre
             if [[ $LINE == MSX-Backup_* ]]; then
-              # Extraer la fecha del nombre del archivo (ej: MSX-Backup_2024-01-30_12-30-45.tar.gz)
               FECHA_ARCHIVO=$(echo "$LINE" | sed 's/MSX-Backup_\([0-9-]*\)_\([0-9-]*\)\.tar\.gz/\1 \2/' | tr '_' ':')
-              # Convertir esa fecha a timestamp de Unix
               TIMESTAMP_ARCHIVO=$(date -d "$FECHA_ARCHIVO" +%s 2>/dev/null)
-
-              # Si podemos obtener el timestamp y es más antiguo que la fecha límite, lo borramos
               if [[ -n "$TIMESTAMP_ARCHIVO" && $TIMESTAMP_ARCHIVO -lt $FECHA_LIMITE ]]; then
                 echo "Eliminando archivo antiguo: $LINE"
                 mega-rm "/Root/MSX-Backup/$LINE"
               fi
             fi
           done
-
           mega-logout
 
       - name: Limpiar archivo local temporal
