@@ -60,6 +60,9 @@ jobs:
         run: |
           set -e  # Salir inmediatamente si algún comando falla
           
+          # Configurar zona horaria de Argentina para cálculos
+          export TZ='America/Argentina/Buenos_Aires'
+          
           FECHA_LIMITE=$(date -d "7 days ago" +%s)
           echo "🗑️ Eliminando backups anteriores a: $(date -d @$FECHA_LIMITE)"
           
@@ -87,8 +90,8 @@ jobs:
               echo "Procesando archivo: $LINE"
               echo "Fecha extraída: $FECHA_COMPLETA"
               
-              # Convertir fecha a timestamp
-              TIMESTAMP_ARCHIVO=$(date -d "$FECHA_COMPLETA" +%s 2>/dev/null) || {
+              # Convertir fecha a timestamp (usando zona horaria argentina)
+              TIMESTAMP_ARCHIVO=$(TZ='America/Argentina/Buenos_Aires' date -d "$FECHA_COMPLETA" +%s 2>/dev/null) || {
                 echo "⚠️ No se pudo parsear la fecha para: $LINE"
                 continue
               }
