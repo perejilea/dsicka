@@ -41,7 +41,15 @@ jobs:
       - name: Subir backup a MEGA
         run: |
           mega-login "${{ secrets.MEGA_EMAIL }}" "${{ secrets.MEGA_PASSWORD }}"
-          mega-mkdir -p "/Root/MSX-Backup"
+          
+          # Verificar si la carpeta existe, si no, crearla
+          if ! mega-ls /Root/MSX-Backup/ >/dev/null 2>&1; then
+            echo "📁 Creando carpeta MSX-Backup..."
+            mega-mkdir "/Root/MSX-Backup"
+          else
+            echo "📁 Carpeta MSX-Backup ya existe"
+          fi
+          
           mega-put "$BACKUP_FILENAME" "/Root/MSX-Backup/"
           echo "✅ Backup subido exitosamente: $BACKUP_FILENAME"
           mega-logout
