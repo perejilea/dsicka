@@ -3,10 +3,11 @@ name: "[MSX] Backup Codespace to MEGA"
 on:
   push:
     paths:
-      - 'backup/**' # Se activa cuando cambien los archivos en la carpeta "backup"
+      - 'backup/**'
   schedule:
-    - cron: '0 */6 * * *' # Ejecuta cada 6 horas (ajustable)
-  workflow_dispatch: # Ejecución manual
+    # Ejecuta a las 00:00, 06:00, 12:00 y 18:00 UTC (Cada 6 horas)
+    - cron: '0 0,6,12,18 * * *'
+  workflow_dispatch:
 
 jobs:
   backup:
@@ -29,13 +30,24 @@ jobs:
           # La opción '--warning=no-file-changed' hace que el comando exit code 0 aunque no haya cambios.
           tar -czf "$BACKUP_FILENAME" backup/ || [[ $? -eq 0 || $? -eq 1 || $? -eq 2 ]]
 
-      - name: Instalar MEGAcmd
+      - name: Instalar MEGAcmd (Método Oficial)
         run: |
-          # Instalar dependencias y MEGAcmd
+          # 1. Instalar herramientas necesarias
           sudo apt-get update
-          sudo apt-get install -y wget
-          curl -s https://mega.nz/linux/repo/xUbuntu_20.04/amd64/megacmd-xUbuntu_20.04_amd64.deb -o /tmp/megacmd.deb
-          sudo dpkg -i megacmd.deb || sudo apt-get install -f -y
+          sudo apt-get install -y curl gpg
+          
+          # 2. Agregar la clave GPG del repositorio de MEGA
+          curl -fsSL https://mega.nz/linux/MEGAsync/xUbuntu_22.04/Release.key | sudo gpg --dearmor -o /usr/share/keyrings/mega-archive-keyring.gpg
+          
+          # 3. Agregar el repositorio de MEGA a la lista de fuentes de APT
+          echo "deb [signed-by=/usr/share/keyrings/mega-archive-keyring.gpg] https://mega.nz/linux/MEGAsync/xUbuntu_22.04/ ./" | sudo tee /etc/apt/sources.list.d/mega.list
+          
+          # 4. Actualizar la lista de paquetes e instalar MEGAcmd
+          sudo apt-get update
+          sudo apt-get install -y megacmd
+          
+          # 5. Verificar que la instalación fue exitosa
+          mega-version || echo "MEGAcmd no se instaló correctamente"
 
       - name: Subir backup a MEGA
         run: |
@@ -51,6 +63,8 @@ jobs:
 
           # Cerrar sesión
           mega-logout
+        env:
+          BACKUP_FILENAME: ${{ env.BACKUP_FILENAME }}
 
       - name: Limpiar backups antiguos (Mantener últimos 7 días)
         run: |
