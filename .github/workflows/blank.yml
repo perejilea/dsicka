@@ -1,0 +1,84 @@
+name: "[MSX] Backup Codespace to MEGA"
+
+on:
+  push:
+    paths:
+      - 'backup/**' # Se activa cuando cambien los archivos en la carpeta "backup"
+  schedule:
+    - cron: '0 */6 * * *' # Ejecuta cada 6 horas (ajustable)
+  workflow_dispatch: # Ejecución manual
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout código + LFS
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          lfs: true
+
+      - name: Crear archivo comprimido con timestamp
+        run: |
+          # Crear un nombre de archivo con fecha y hora
+          TIMESTAMP=$(date +"%Y-%m-%d_%H-%M-%S")
+          BACKUP_FILENAME="MSX-Backup_$TIMESTAMP.tar.gz"
+          echo "BACKUP_FILENAME=$BACKUP_FILENAME" >> $GITHUB_ENV
+
+          # Empaquetar y comprimir la carpeta 'backup'
+          # La opción '--warning=no-file-changed' hace que el comando exit code 0 aunque no haya cambios.
+          tar -czf "$BACKUP_FILENAME" backup/ || [[ $? -eq 0 || $? -eq 1 || $? -eq 2 ]]
+
+      - name: Instalar MEGAcmd
+        run: |
+          # Instalar dependencias y MEGAcmd
+          sudo apt-get update
+          sudo apt-get install -y wget
+          wget -q https://mega.nz/linux/MEGAsync/xUbuntu_22.04/amd64/megacmd_1.5.0-1.1_amd64.deb -O megacmd.deb
+          sudo dpkg -i megacmd.deb || sudo apt-get install -f -y
+
+      - name: Subir backup a MEGA
+        run: |
+          # Iniciar sesión
+          mega-login "${{ secrets.MEGA_EMAIL }}" "${{ secrets.MEGA_PASSWORD }}"
+
+          # Crear la carpeta de destino en MEGA si no existe (esto no falla si ya existe)
+          mega-mkdir -p "/Root/MSX-Backup"
+
+          # Subir el archivo comprimido a la carpeta
+          mega-put "$BACKUP_FILENAME" "/Root/MSX-Backup/"
+          echo "✅ Backup subido exitosamente: $BACKUP_FILENAME"
+
+          # Cerrar sesión
+          mega-logout
+
+      - name: Limpiar backups antiguos (Mantener últimos 7 días)
+        run: |
+          # Calculamos la fecha límite (7 días atrás en formato timestamp de Unix)
+          FECHA_LIMITE=$(date -d "7 days ago" +%s)
+          echo "🗑️  Eliminando backups anteriores a: $(date -d @$FECHA_LIMITE)"
+
+          # Iniciar sesión de nuevo
+          mega-login "${{ secrets.MEGA_EMAIL }}" "${{ secrets.MEGA_PASSWORD }}"
+
+          # Listar todos los archivos en la carpeta MSX-Backup
+          mega-ls /Root/MSX-Backup/ | while read -r LINE; do
+            # Filtrar solo los archivos que coincidan con nuestro patrón de nombre
+            if [[ $LINE == MSX-Backup_* ]]; then
+              # Extraer la fecha del nombre del archivo (ej: MSX-Backup_2024-01-30_12-30-45.tar.gz)
+              FECHA_ARCHIVO=$(echo "$LINE" | sed 's/MSX-Backup_\([0-9-]*\)_\([0-9-]*\)\.tar\.gz/\1 \2/' | tr '_' ':')
+              # Convertir esa fecha a timestamp de Unix
+              TIMESTAMP_ARCHIVO=$(date -d "$FECHA_ARCHIVO" +%s 2>/dev/null)
+
+              # Si podemos obtener el timestamp y es más antiguo que la fecha límite, lo borramos
+              if [[ -n "$TIMESTAMP_ARCHIVO" && $TIMESTAMP_ARCHIVO -lt $FECHA_LIMITE ]]; then
+                echo "Eliminando archivo antiguo: $LINE"
+                mega-rm "/Root/MSX-Backup/$LINE"
+              fi
+            fi
+          done
+
+          mega-logout
+
+      - name: Limpiar archivo local temporal
+        run: rm -f "$BACKUP_FILENAME"
